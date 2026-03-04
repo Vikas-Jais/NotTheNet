@@ -4,6 +4,13 @@
 
 # NotTheNet — Fake Internet Simulator
 
+<p align="center">
+  <a href="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml"><img src="https://github.com/retr0verride/NotTheNet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.bestpractices.dev/projects/XXXXX"><img src="https://www.bestpractices.dev/projects/XXXXX/badge" alt="OpenSSF Best Practices"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/retr0verride/NotTheNet" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python 3.9+">
+</p>
+
 > **For malware analysis and sandboxed environments only.**  
 > Never run on a production network or internet-connected interface.
 

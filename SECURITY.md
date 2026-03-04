@@ -63,11 +63,11 @@ This project aims to achieve a high [OpenSSF Scorecard](https://securityscorecar
 
 | Check | Status |
 |-------|--------|
-| Branch protection | Recommended: protect `main` |
+| CI / SAST | ✅ GitHub Actions (ruff + mypy + bandit + pytest) on every push & PR |
+| Branch protection | Recommended: protect `master` |
 | Code review | Recommended: require PRs |
 | Dependency update tool | Recommend enabling Dependabot |
 | Pinned dependencies | ✅ `requirements.txt` pinned |
-| SAST | Recommend: enable CodeQL |
 | Vulnerability disclosure | ✅ This `SECURITY.md` |
 | Signed releases | Recommended: GPG-sign tags |
 
