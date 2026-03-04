@@ -30,6 +30,8 @@ NotTheNet simulates the internet for malware being analysed in an isolated envir
 | [Security Hardening](docs/security-hardening.md) | Lab isolation, interface binding, privilege model, OpenSSF practices |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 | [Lab Setup: Proxmox + Kali + FlareVM](docs/lab-setup.md) | Isolated lab wiring, IP forwarding, detonation workflow |
+| [Changelog](CHANGELOG.md) | Release history and migration notes |
+| [Contributing](CONTRIBUTING.md) | How to report bugs, submit PRs, and run the test suite |
 
 Man page available at [`man/notthenet.1`](man/notthenet.1) — install with `sudo notthenet-install.sh` or manually via `man ./man/notthenet.1`.
 
@@ -197,6 +199,19 @@ bash predeploy.sh
 # Windows dev machine
 .\predeploy.ps1
 ```
+
+---
+
+## Reporting Bugs & Feature Requests
+
+Open an issue on the [GitHub Issue Tracker](https://github.com/retr0verride/NotTheNet/issues).  
+For **security vulnerabilities**, see [SECURITY.md](SECURITY.md) — do not open a public issue.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide — fork, branch, code, test, PR.
 
 ---
 

@@ -230,7 +230,11 @@ Everything else (HTTP, SMTP, FTP, TCP/UDP servers, iptables management, GUI) use
 | OpenSSF Practice | Implementation |
 |-----------------|----------------|
 | Vulnerability disclosure policy | `SECURITY.md` with private reporting channel |
+| Contribution process | `CONTRIBUTING.md` with PR process, code style, and test policy |
+| Changelog | `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format |
 | Pinned dependencies | `requirements.txt` with pinned versions |
+| Dependency monitoring | Dependabot enabled for pip + GitHub Actions (`.github/dependabot.yml`) |
+| CI / SAST on every commit | GitHub Actions runs ruff + mypy + bandit + pytest on every push & PR |
 | Static analysis config | `pyproject.toml` configures Ruff (linting) + Bandit (security scanning) |
 | No shell injection | All `subprocess` calls use lists, `shell=False` enforced in `iptables_manager.py` |
 | Input validation | `utils/validators.py` validates all external inputs at the boundary |

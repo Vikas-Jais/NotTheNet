@@ -66,9 +66,11 @@ This project aims to achieve a high [OpenSSF Scorecard](https://securityscorecar
 | CI / SAST | ✅ GitHub Actions (ruff + mypy + bandit + pytest) on every push & PR |
 | Branch protection | Recommended: protect `master` |
 | Code review | Recommended: require PRs |
-| Dependency update tool | Recommend enabling Dependabot |
+| Dependency update tool | ✅ Dependabot enabled for pip + GitHub Actions |
 | Pinned dependencies | ✅ `requirements.txt` pinned |
 | Vulnerability disclosure | ✅ This `SECURITY.md` |
+| Contribution process | ✅ `CONTRIBUTING.md` with PR process, code style, and test policy |
+| Changelog | ✅ `CHANGELOG.md` following Keep a Changelog format |
 | Signed releases | Recommended: GPG-sign tags |
 
 ## Recommended Deployment Hardening
