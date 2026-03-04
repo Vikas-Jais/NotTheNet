@@ -325,11 +325,11 @@ def forge_domain_cert(
         )
         .add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_key.public_key()
+                ca_key.public_key()  # type: ignore[arg-type]  # always RSA; cryptography stubs return a wider union
             ),
             critical=False,
         )
-        .sign(ca_key, hashes.SHA256())
+        .sign(ca_key, hashes.SHA256())  # type: ignore[arg-type]  # same reason
     )
 
     cert_pem = cert.public_bytes(serialization.Encoding.PEM)
