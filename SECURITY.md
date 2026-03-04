@@ -1,10 +1,18 @@
 # Security Policy
 
+## Common Platform Enumeration (CPE)
+
+```
+cpe:2.3:a:retr0verride:notthenet:*:*:*:*:*:python:*:*
+```
+
+Use this CPE to track NotTheNet in vulnerability databases (NVD, OSV, etc.).
+
 ## Supported Versions
 
 | Version | Supported |
-|---------|-----------|
-| 1.x     | ✅ Yes    |
+|---------|----------|
+| 2026.x  | ✅ Yes   |
 
 ## Reporting a Vulnerability
 

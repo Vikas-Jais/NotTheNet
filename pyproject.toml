@@ -34,6 +34,9 @@ notthenet = "notthenet:main"
 "Homepage"       = "https://github.com/retr0verride/NotTheNet"
 "Bug Tracker"    = "https://github.com/retr0verride/NotTheNet/issues"
 "Security"       = "https://github.com/retr0verride/NotTheNet/security/advisories"
+"Changelog"      = "https://github.com/retr0verride/NotTheNet/blob/master/CHANGELOG.md"
+
+# CPE: cpe:2.3:a:retr0verride:notthenet:*:*:*:*:*:python:*:*
 
 [tool.setuptools]
 py-modules = ["notthenet", "config", "service_manager"]
