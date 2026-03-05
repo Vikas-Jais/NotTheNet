@@ -137,7 +137,9 @@ class _FTPSession(threading.Thread):
         if cmd in ("USER", "PASS"):
             self._send("230 Login successful")
         elif cmd == "SYST":
-            self._send("215 UNIX Type: L8")
+            # Windows IIS FTP returns "Windows_NT", matching the TCP/IP OS
+            # fingerprint profile that NotTheNet applies by default.
+            self._send("215 Windows_NT")
         elif cmd == "FEAT":
             self._send("211-Features:\r\n PASV\r\n211 End")
         elif cmd == "PWD":

@@ -13,7 +13,10 @@ from services.catch_all import CatchAllTCPService, CatchAllUDPService
 from services.dns_server import DNSService
 from services.ftp_server import FTPService
 from services.http_server import HTTPService, HTTPSService
-from services.mail_server import IMAPService, POP3Service, SMTPService
+from services.mail_server import IMAPService, IMAPSService, POP3Service, POP3SService, SMTPService, SMTPSService
+from services.irc_server import IRCService
+from services.ntp_server import NTPService
+from services.tftp_server import TFTPService
 from utils.cert_utils import ensure_certs
 from utils.json_logger import close_json_logger, init_json_logger
 from utils.privilege import require_root_or_warn
@@ -107,15 +110,45 @@ class ServiceManager:
             self._services["smtp"] = smtp
             started.append("smtp")
 
+        smtps_cfg = {
+            **self.config.get_section("smtps"),
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        smtps = SMTPSService(smtps_cfg, bind_ip=bind_ip)
+        if smtps.start():
+            self._services["smtps"] = smtps
+            started.append("smtps")
+
         pop3 = POP3Service(self.config.get_section("pop3"), bind_ip=bind_ip)
         if pop3.start():
             self._services["pop3"] = pop3
             started.append("pop3")
 
+        pop3s_cfg = {
+            **self.config.get_section("pop3s"),
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        pop3s = POP3SService(pop3s_cfg, bind_ip=bind_ip)
+        if pop3s.start():
+            self._services["pop3s"] = pop3s
+            started.append("pop3s")
+
         imap = IMAPService(self.config.get_section("imap"), bind_ip=bind_ip)
         if imap.start():
             self._services["imap"] = imap
             started.append("imap")
+
+        imaps_cfg = {
+            **self.config.get_section("imaps"),
+            "cert_file": https_cfg.get("cert_file", "certs/server.crt"),
+            "key_file":  https_cfg.get("key_file",  "certs/server.key"),
+        }
+        imaps = IMAPSService(imaps_cfg, bind_ip=bind_ip)
+        if imaps.start():
+            self._services["imaps"] = imaps
+            started.append("imaps")
 
         ftp = FTPService(self.config.get_section("ftp"), bind_ip=bind_ip)
         if ftp.start():
@@ -131,6 +164,21 @@ class ServiceManager:
         if catch_udp.start():
             self._services["catch_udp"] = catch_udp
             started.append("catch_udp")
+
+        ntp = NTPService(self.config.get_section("ntp"), bind_ip=bind_ip)
+        if ntp.start():
+            self._services["ntp"] = ntp
+            started.append("ntp")
+
+        irc = IRCService(self.config.get_section("irc"), bind_ip=bind_ip)
+        if irc.start():
+            self._services["irc"] = irc
+            started.append("irc")
+
+        tftp = TFTPService(self.config.get_section("tftp"), bind_ip=bind_ip)
+        if tftp.start():
+            self._services["tftp"] = tftp
+            started.append("tftp")
 
         # --- Apply iptables rules after all services are bound ---
         if self.config.get("general", "auto_iptables"):
@@ -163,10 +211,22 @@ class ServiceManager:
             "http":  ("tcp", self.config.get("http",  "port") or 80),
             "https": ("tcp", self.config.get("https", "port") or 443),
             "smtp":  ("tcp", self.config.get("smtp",  "port") or 25),
+            "smtps": ("tcp", self.config.get("smtps", "port") or 465),
             "pop3":  ("tcp", self.config.get("pop3",  "port") or 110),
+            "pop3s": ("tcp", self.config.get("pop3s", "port") or 995),
             "imap":  ("tcp", self.config.get("imap",  "port") or 143),
+            "imaps": ("tcp", self.config.get("imaps", "port") or 993),
             "ftp":   ("tcp", self.config.get("ftp",   "port") or 21),
+            "irc":   ("tcp", self.config.get("irc",   "port") or 6667),
         }
+        # TFTP uses UDP port 69
+        if "tftp" in self._services:
+            tftp_port = self.config.get("tftp", "port") or 69
+            service_ports["udp"].append(int(tftp_port))
+        # NTP uses UDP port 123
+        if "ntp" in self._services:
+            ntp_port = self.config.get("ntp", "port") or 123
+            service_ports["udp"].append(int(ntp_port))
         # Only add DNS port if the DNS service actually started
         if "dns" in self._services:
             dns_port = self.config.get("dns", "port") or 53

@@ -12,11 +12,13 @@ Security notes (OpenSSF):
 
 import logging
 import os
+import ssl
 import socketserver
 import threading
 import uuid
 from typing import Optional
 
+from utils.cert_utils import ensure_certs
 from utils.json_logger import get_json_logger
 from utils.logging_utils import sanitize_ip, sanitize_log_string
 
@@ -52,6 +54,10 @@ class _SMTPClientThread(threading.Thread):
         self.data_mode = False
         self.mail_data: list = []
         self.current_size = 0
+        # AUTH LOGIN is a two-step challenge; track which step we're on.
+        # None = not in auth, 'login_user' = waiting for username,
+        # 'login_pass' = waiting for password.
+        self._auth_state: Optional[str] = None
 
     def _send(self, msg: str):
         try:
@@ -102,11 +108,51 @@ class _SMTPClientThread(threading.Thread):
                     self.current_size += len(line)
             return
 
+        # AUTH LOGIN is a two-step challenge.  Check auth state BEFORE
+        # command parsing: the client sends raw base64 blobs that must not
+        # be dispatched through the command table (a blob that uppercases
+        # to e.g. "DATA" would fire the wrong branch).
+        if self._auth_state == "login_user":
+            self._auth_state = "login_pass"
+            self._send("334 UGFzc3dvcmQ6")  # base64("Password:")
+            return
+        if self._auth_state == "login_pass":
+            self._auth_state = None
+            self._send("235 2.7.0 Authentication successful")
+            return
+
         cmd = line.strip().upper()[:10]
         logger.debug(f"SMTP  [{safe_addr}] cmd={sanitize_log_string(cmd)}")
 
         if cmd.startswith("EHLO") or cmd.startswith("HELO"):
-            self._send(f"250-{self.hostname}\r\n250 Ok")
+            # Advertise a realistic set of extensions so malware stealers
+            # that check for AUTH before authenticating will find it.
+            self._send(
+                f"250-{self.hostname}\r\n"
+                f"250-PIPELINING\r\n"
+                f"250-SIZE 10240000\r\n"
+                f"250-VRFY\r\n"
+                f"250-ETRN\r\n"
+                f"250-AUTH PLAIN LOGIN\r\n"
+                f"250-AUTH=PLAIN LOGIN\r\n"
+                f"250-ENHANCEDSTATUSCODES\r\n"
+                f"250-8BITMIME\r\n"
+                f"250 DSN"
+            )
+        elif cmd.startswith("AUTH"):
+            # Accept any credentials — AUTH PLAIN (single step) or
+            # AUTH LOGIN (two-step challenge/response).
+            parts = line.split(None, 2)
+            mech = parts[1].upper() if len(parts) > 1 else ""
+            if mech == "PLAIN":
+                # AUTH PLAIN [initial-response] — accept immediately
+                self._send("235 2.7.0 Authentication successful")
+            elif mech == "LOGIN":
+                # AUTH LOGIN — send Username: challenge
+                self._auth_state = "login_user"
+                self._send("334 VXNlcm5hbWU6")  # base64("Username:")
+            else:
+                self._send("535 5.7.8 Authentication credentials invalid")
         elif cmd.startswith("MAIL"):
             self._send("250 Ok")
         elif cmd.startswith("RCPT"):
@@ -118,11 +164,18 @@ class _SMTPClientThread(threading.Thread):
             self.mail_data = []
             self.current_size = 0
             self._send("250 Ok")
+        elif cmd.startswith("VRFY"):
+            # RFC 5321 §3.5.1: 252 = can’t verify but will try delivery
+            self._send("252 Cannot VRFY user, but will accept message and attempt delivery")
         elif cmd.startswith("QUIT"):
             self._send("221 Bye")
             self.conn.close()
         elif cmd.startswith("NOOP"):
             self._send("250 Ok")
+        elif cmd.startswith("STARTTLS"):
+            # Acknowledge but do not actually upgrade; most malware falls
+            # back to unencrypted SMTP when TLS fails gracefully.
+            self._send("454 TLS not available due to temporary reason")
         else:
             self._send("500 Unrecognized command")
 
@@ -170,6 +223,42 @@ class _SMTPServer(socketserver.ThreadingTCPServer):
         t.start()
 
 
+class _SMTPSServer(_SMTPServer):
+    """SMTPS variant — wraps each accepted socket in TLS before handing off."""
+
+    def __init__(self, address, hostname, banner, save_dir, ssl_ctx: ssl.SSLContext):
+        self._ssl_ctx = ssl_ctx
+        super().__init__(address, hostname, banner, save_dir)
+
+    def get_request(self):
+        conn, addr = self.socket.accept()
+        try:
+            conn = self._ssl_ctx.wrap_socket(conn, server_side=True)
+        except ssl.SSLError as e:
+            logger.debug(f"SMTPS TLS handshake failed from {addr}: {e}")
+            conn.close()
+            raise
+        return conn, addr
+
+
+class _SSLReuseServer(_ReuseServer):
+    """ThreadingTCPServer that wraps accepted sockets in TLS."""
+
+    def __init__(self, address, handler, ssl_ctx: ssl.SSLContext):
+        self._ssl_ctx = ssl_ctx
+        super().__init__(address, handler)
+
+    def get_request(self):
+        conn, addr = self.socket.accept()
+        try:
+            conn = self._ssl_ctx.wrap_socket(conn, server_side=True)
+        except ssl.SSLError as e:
+            logger.debug(f"TLS handshake failed from {addr}: {e}")
+            conn.close()
+            raise
+        return conn, addr
+
+
 class SMTPService:
     def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
         self.enabled = config.get("enabled", True)
@@ -212,8 +301,71 @@ class SMTPService:
         return self._server is not None
 
 
+class SMTPSService:
+    """
+    Fake SMTPS server (implicit TLS on port 465).
+    Uses the same protocol handler as SMTP — just wraps the socket in TLS
+    before the banner is sent.  RedLine, AgentTesla, FormBook, and most
+    other stealers that exfiltrate via email use port 465 exclusively.
+    """
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled = config.get("enabled", True)
+        self.port = int(config.get("port", 465))
+        self.bind_ip = bind_ip
+        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.banner = config.get("banner", "220 mail.notthenet.local ESMTP")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file = config.get("key_file", "certs/server.key")
+        save_emails = config.get("save_emails", True)
+        self.save_dir = "logs/emails" if save_emails else None
+        self._server: Optional[_SMTPSServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def _build_ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(certfile=self.cert_file, keyfile=self.key_file)
+        return ctx
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        ensure_certs(self.cert_file, self.key_file)
+        if not os.path.exists(self.cert_file) or not os.path.exists(self.key_file):
+            logger.error(f"SMTPS cert/key not found: {self.cert_file} / {self.key_file}")
+            return False
+        if self.save_dir:
+            os.makedirs(self.save_dir, exist_ok=True)
+        try:
+            ssl_ctx = self._build_ssl_context()
+            self._server = _SMTPSServer(
+                (self.bind_ip, self.port),
+                self.hostname, self.banner, self.save_dir, ssl_ctx
+            )
+            self._thread = threading.Thread(
+                target=self._server.serve_forever, daemon=True
+            )
+            self._thread.start()
+            logger.info(f"SMTPS service started on {self.bind_ip}:{self.port}")
+            return True
+        except OSError as e:
+            logger.error(f"SMTPS failed to bind {self.bind_ip}:{self.port}: {e}")
+            return False
+
+    def stop(self):
+        if self._server:
+            self._server.shutdown()
+            self._server = None
+        logger.info("SMTPS service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._server is not None
+
+
 # ---------------------------------------------------------------------------
-# POP3 (minimal — enough to satisfy most malware polling)
+# POP3
 # ---------------------------------------------------------------------------
 
 def _make_pop3_handler(hostname: str = "mail.notthenet.local"):
@@ -303,8 +455,59 @@ class POP3Service:
         return self._server is not None
 
 
+class POP3SService:
+    """Fake POP3S server (implicit TLS on port 995)."""
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled = config.get("enabled", True)
+        self.port = int(config.get("port", 995))
+        self.bind_ip = bind_ip
+        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file = config.get("key_file", "certs/server.key")
+        self._server = None
+        self._thread = None
+
+    def _build_ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(certfile=self.cert_file, keyfile=self.key_file)
+        return ctx
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        ensure_certs(self.cert_file, self.key_file)
+        if not os.path.exists(self.cert_file) or not os.path.exists(self.key_file):
+            logger.error(f"POP3S cert/key not found: {self.cert_file} / {self.key_file}")
+            return False
+        try:
+            ssl_ctx = self._build_ssl_context()
+            handler = _make_pop3_handler(self.hostname)
+            self._server = _SSLReuseServer((self.bind_ip, self.port), handler, ssl_ctx)
+            self._thread = threading.Thread(
+                target=self._server.serve_forever, daemon=True
+            )
+            self._thread.start()
+            logger.info(f"POP3S service started on {self.bind_ip}:{self.port}")
+            return True
+        except OSError as e:
+            logger.error(f"POP3S failed to bind: {e}")
+            return False
+
+    def stop(self):
+        if self._server:
+            self._server.shutdown()
+            self._server = None
+        logger.info("POP3S service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._server is not None
+
+
 # ---------------------------------------------------------------------------
-# IMAP (minimal — enough to satisfy most malware polling)
+# IMAP
 # ---------------------------------------------------------------------------
 
 def _make_imap_handler(hostname: str):
@@ -345,6 +548,27 @@ def _make_imap_handler(hostname: str):
                                 f"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen)\r\n"
                                 f"{tag} OK [READ-WRITE] SELECT completed"
                             )
+                        elif cmd == "EXAMINE":
+                            # EXAMINE is identical to SELECT but read-only.
+                            # Used by some IMAP clients to check for new mail
+                            # without marking messages as seen.
+                            self._send(
+                                f"* 0 EXISTS\r\n* 0 RECENT\r\n"
+                                f"* FLAGS (\\Answered \\Flagged \\Deleted \\Seen)\r\n"
+                                f"{tag} OK [READ-ONLY] EXAMINE completed"
+                            )
+                        elif cmd == "STATUS":
+                            # STATUS returns folder counts. Many IMAP client
+                            # libraries (including those embedded in stealers)
+                            # use STATUS to quickly check for new messages
+                            # before doing a full SELECT.
+                            mailbox = parts[2].split()[0].strip('"') if len(parts) > 2 else "INBOX"
+                            self._send(
+                                f"* STATUS {mailbox} (MESSAGES 0 RECENT 0 UNSEEN 0)\r\n"
+                                f"{tag} OK STATUS completed"
+                            )
+                        elif cmd == "LSUB":
+                            self._send(f'* LSUB () "/" INBOX\r\n{tag} OK LSUB completed')
                         elif cmd == "LOGOUT":
                             self._send(f"* BYE\r\n{tag} OK LOGOUT completed")
                             return
@@ -394,6 +618,57 @@ class IMAPService:
             self._server.shutdown()
             self._server = None
         logger.info("IMAP service stopped.")
+
+    @property
+    def running(self) -> bool:
+        return self._server is not None
+
+
+class IMAPSService:
+    """Fake IMAPS server (implicit TLS on port 993)."""
+
+    def __init__(self, config: dict, bind_ip: str = "0.0.0.0"):
+        self.enabled = config.get("enabled", True)
+        self.port = int(config.get("port", 993))
+        self.bind_ip = bind_ip
+        self.hostname = config.get("hostname", "mail.notthenet.local")
+        self.cert_file = config.get("cert_file", "certs/server.crt")
+        self.key_file = config.get("key_file", "certs/server.key")
+        self._server = None
+        self._thread = None
+
+    def _build_ssl_context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(certfile=self.cert_file, keyfile=self.key_file)
+        return ctx
+
+    def start(self) -> bool:
+        if not self.enabled:
+            return False
+        ensure_certs(self.cert_file, self.key_file)
+        if not os.path.exists(self.cert_file) or not os.path.exists(self.key_file):
+            logger.error(f"IMAPS cert/key not found: {self.cert_file} / {self.key_file}")
+            return False
+        try:
+            ssl_ctx = self._build_ssl_context()
+            handler = _make_imap_handler(self.hostname)
+            self._server = _SSLReuseServer((self.bind_ip, self.port), handler, ssl_ctx)
+            self._thread = threading.Thread(
+                target=self._server.serve_forever, daemon=True
+            )
+            self._thread.start()
+            logger.info(f"IMAPS service started on {self.bind_ip}:{self.port}")
+            return True
+        except OSError as e:
+            logger.error(f"IMAPS failed to bind: {e}")
+            return False
+
+    def stop(self):
+        if self._server:
+            self._server.shutdown()
+            self._server = None
+        logger.info("IMAPS service stopped.")
 
     @property
     def running(self) -> bool:

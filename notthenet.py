@@ -368,13 +368,13 @@ class _GeneralPage(tk.Frame):
              "IP address that all services bind to.\n"
              "Use 0.0.0.0 to listen on every interface,\n"
              "or a specific IP to restrict to one interface."),
-            ("Redirect IP",   "redirect_ip",  "127.0.0.1",
+            ("Redirect IP",   "redirect_ip",  "10.10.10.1",
              "IP returned for all DNS A/AAAA queries.\n"
              "Usually 127.0.0.1 to route malware traffic back to this machine."),
             ("Interface",     "interface",    "eth0",
              "Network interface for iptables REDIRECT rules (e.g. eth0, ens33).\n"
              "Run 'ip link' to list available interfaces."),
-            ("iptables Mode", "iptables_mode", "loopback",
+            ("iptables Mode", "iptables_mode", "gateway",
              "How iptables REDIRECT rules are applied.\n"
              "loopback — OUTPUT chain, intercepts traffic from this machine only (default).\n"
              "gateway  — PREROUTING chain, intercepts traffic from other hosts on the network.\n"
@@ -412,11 +412,11 @@ class _GeneralPage(tk.Frame):
             ("Log to file",               "log_to_file",   True,
              "Write log output to a rotating file in the log directory\n"
              "in addition to the GUI log panel."),
-            ("JSON structured logging",    "json_logging",  False,
+            ("JSON structured logging",    "json_logging",  True,
              "Write every intercepted request as a JSON Lines (.jsonl) file\n"
              "for automated pipeline ingestion (CAPEv2, Splunk, ELK).\n"
              "Output: logs/events.jsonl  \u2014  one JSON object per line."),
-            ("TCP/IP fingerprint spoofing", "tcp_fingerprint", False,
+            ("TCP/IP fingerprint spoofing", "tcp_fingerprint", True,
              "Modify TCP/IP stack parameters (TTL, window size, DF bit)\n"
              "on all listening sockets so responses appear to come from\n"
              "the selected OS. Defeats malware that fingerprints the\n"
@@ -816,7 +816,7 @@ class _DNSPage(_ServicePage):
                 ("Port",        "port",       "53",
                  "UDP/TCP port for the fake DNS server. Default: 53.\n"
                  "iptables will redirect all DNS traffic here. Requires root."),
-                ("Resolve To",  "resolve_to", "127.0.0.1",
+                ("Resolve To",  "resolve_to", "10.10.10.1",
                  "IP address returned for all A/AAAA queries unless\n"
                  "overridden by a custom record in the section below."),
                 ("TTL (s)",     "ttl",        "300",
@@ -1193,19 +1193,37 @@ class NotTheNetApp(tk.Tk):
             ("ftp",   "◈  FTP",
              "Fake FTP server — accepts logins and optionally saves uploads\n"
              "to disk with UUID filenames."),
+            ("ntp",   "◈  NTP",
+             "Fake NTP server — returns current system time on UDP/123.\n"
+             "Defeats clock-skew sandbox detection used by evasive malware."),
+            ("irc",   "◈  IRC",
+             "Fake IRC server — accepts botnet C2 connections on TCP/6667.\n"
+             "Provides realistic welcome sequence and channel join so bots\n"
+             "proceed to sit awaiting commands."),
+            ("tftp",  "◈  TFTP",
+             "Fake TFTP server — handles RRQ (serves stub file) and WRQ\n"
+             "(saves uploads) on UDP/69. Used for payload staging and\n"
+             "lateral movement exfiltration."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
 
         # Group: Mail services
         self._add_sidebar_section(left, "MAIL")
         for key, label, tip in [
-            ("smtp", "◈  SMTP",
+            ("smtp",  "◈  SMTP",
              "Fake SMTP server — accepts email submissions and optionally\n"
              "saves them as .eml files for analysis."),
-            ("pop3", "◈  POP3",
+            ("smtps", "◈  SMTPS",
+             "Fake SMTPS server (implicit TLS port 465) — used by stealers\n"
+             "such as RedLine, AgentTesla, and FormBook to exfiltrate credentials."),
+            ("pop3",  "◈  POP3",
              "Fake POP3 server — announces an empty mailbox to connecting clients."),
-            ("imap", "◈  IMAP",
+            ("pop3s", "◈  POP3S",
+             "Fake POP3S server (implicit TLS port 995)."),
+            ("imap",  "◈  IMAP",
              "Fake IMAP server — announces an empty INBOX to connecting clients."),
+            ("imaps", "◈  IMAPS",
+             "Fake IMAPS server (implicit TLS port 993)."),
         ]:
             self._add_sidebar_btn(left, key, label, tip)
 
@@ -1378,6 +1396,18 @@ class NotTheNetApp(tk.Tk):
                  "Save each received email as a .eml file in logs/emails/\n"
                  "with a UUID filename for later analysis."),
             ]),
+            ("smtps", [
+                ("Port",     "port",     "465",
+                 f"TCP port for SMTPS (implicit TLS). Default: 465. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "Hostname announced in the SMTPS banner and EHLO response."),
+                ("Banner",   "banner",   "220 mail.notthenet.local ESMTP",
+                 "220 greeting sent after TLS handshake completes."),
+            ], [
+                ("Enabled",     "enabled",     True,  _ENABLED),
+                ("Save Emails", "save_emails", True,
+                 "Save received emails to logs/emails/ (same directory as SMTP)."),
+            ]),
             ("pop3", [
                 ("Port",     "port",     "110",
                  f"TCP port for the POP3 server. Default: 110. {_PORT_ROOT}"),
@@ -1386,11 +1416,27 @@ class NotTheNetApp(tk.Tk):
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
             ]),
+            ("pop3s", [
+                ("Port",     "port",     "995",
+                 f"TCP port for POP3S (implicit TLS). Default: 995. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "Hostname announced in the POP3S +OK greeting banner."),
+            ], [
+                ("Enabled", "enabled", True, _ENABLED),
+            ]),
             ("imap", [
                 ("Port",     "port",     "143",
                  f"TCP port for the IMAP server. Default: 143. {_PORT_ROOT}"),
                 ("Hostname", "hostname", "mail.notthenet.local",
                  "Hostname used in the IMAP greeting and capability responses."),
+            ], [
+                ("Enabled", "enabled", True, _ENABLED),
+            ]),
+            ("imaps", [
+                ("Port",     "port",     "993",
+                 f"TCP port for IMAPS (implicit TLS). Default: 993. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "mail.notthenet.local",
+                 "Hostname used in the IMAPS greeting and capability responses."),
             ], [
                 ("Enabled", "enabled", True, _ENABLED),
             ]),
@@ -1418,6 +1464,61 @@ class NotTheNetApp(tk.Tk):
         # JSON events viewer page
         self._pages["json_events"] = _JsonEventsPage(
             self._page_container, self._cfg
+        )
+
+        # NTP page
+        self._pages["ntp"] = _ServicePage(
+            self._page_container, self._cfg, "ntp",
+            [
+                ("Port", "port", "123",
+                 f"UDP port for the NTP server. Default: 123. {_PORT_ROOT}"),
+            ],
+            [
+                ("Enabled", "enabled", True, _ENABLED),
+            ],
+        )
+
+        # IRC page
+        self._pages["irc"] = _ServicePage(
+            self._page_container, self._cfg, "irc",
+            [
+                ("Port",     "port",     "6667",
+                 f"TCP port for the fake IRC server. Default: 6667. {_PORT_ROOT}"),
+                ("Hostname", "hostname", "irc.example.com",
+                 "IRC server hostname advertised in the 001–004 welcome burst.\n"
+                 "Malware often uses this to verify it connected to the right server."),
+                ("Network",  "network",  "FakeNet",
+                 "IRC network name sent in RPL_ISUPPORT (005).\n"
+                 "Some bots check this to confirm the correct network."),
+                ("Channel",  "channel",  "botnet",
+                 "Default channel name returned in /LIST. Bots typically JOIN\n"
+                 "a hard-coded channel name rather than relying on /LIST."),
+                ("MOTD",     "motd",     "Welcome to NotTheNet IRC.",
+                 "Message of the Day text sent after successful registration."),
+            ],
+            [
+                ("Enabled", "enabled", True, _ENABLED),
+            ],
+        )
+
+        # TFTP page
+        self._pages["tftp"] = _ServicePage(
+            self._page_container, self._cfg, "tftp",
+            [
+                ("Port",       "port",       "69",
+                 f"UDP port for the TFTP server. Default: 69. {_PORT_ROOT}"),
+                ("Upload Dir", "upload_dir", "logs/tftp_uploads",
+                 "Directory where WRQ (write) uploads are saved.\n"
+                 "Created automatically. Each file is prefixed with a UUID\n"
+                 "to prevent collisions."),
+            ],
+            [
+                ("Enabled",       "enabled",       True, _ENABLED),
+                ("Allow Uploads", "allow_uploads", True,
+                 "Accept WRQ (write) transfers from clients.\n"
+                 "Disable to silently reject all upload attempts with\n"
+                 "TFTP error code 2 (Access violation)."),
+            ],
         )
 
         # Catch-all page

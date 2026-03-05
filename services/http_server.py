@@ -78,6 +78,22 @@ _IP_CHECK_HOSTS = frozenset({
     "ip-api.com",
 })
 
+# Windows Network Connectivity Status Indicator (NCSI) endpoints.
+# Windows queries these to determine whether the "Internet access" indicator
+# is shown in the system tray.  Some malware waits for NCSI to report
+# connectivity before detonating.  The responses MUST be exact byte-for-byte
+# matches of what a real Microsoft server returns.
+_NCSI_HOSTS = frozenset({
+    "msftconnecttest.com",
+    "ipv6.msftconnecttest.com",
+    "www.msftncsi.com",
+})
+_NCSI_RESPONSES: dict[str, bytes] = {
+    "msftconnecttest.com":      b"Microsoft Connect Test",
+    "ipv6.msftconnecttest.com": b"Microsoft Connect Test",
+    "www.msftncsi.com":         b"Microsoft NCSI",
+}
+
 
 def _load_response_body(config: dict) -> str:
     """
@@ -120,6 +136,12 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         _doh_redirect_ip = doh_redirect_ip
         _websocket_sinkhole = websocket_sinkhole
 
+        # Prevent send_response() from prepending its own
+        # "Server: BaseHTTP/0.6 Python/3.x" header before ours.  Without
+        # this, every response carries two Server headers — an obvious
+        # fingerprint that sandbox-detection tools check for.
+        server_version = ""
+
         # Suppress default BaseHTTPServer stderr logging (we do our own)
         def log_message(self, fmt, *args):
             pass
@@ -127,23 +149,51 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
         def _send_ip_check_response(self, host: str):
             """Return the spoofed public IP for known IP-check services."""
             path = self.path or "/"
+            ip = self._spoof_ip
+
+            # ipinfo.io — returns detailed JSON including ISP/org.
+            # Malware often checks the 'org' field for datacenter/hosting ASNs
+            # to detect sandboxes; we return a realistic residential ISP.
+            if host == "ipinfo.io":
+                body = (
+                    f'{{"ip":"{ip}",'
+                    f'"city":"Columbus","region":"Ohio","country":"US",'
+                    f'"loc":"39.9612,-82.9988",'
+                    f'"org":"AS7922 Comcast Cable Communications, LLC",'
+                    f'"postal":"43215","timezone":"America/New_York"}}\n'
+                ).encode()
+                content_type = "application/json"
+            # ip-api.com — its /json endpoint returns an expanded object.
+            elif host == "ip-api.com":
+                body = (
+                    f'{{"status":"success","country":"United States",'
+                    f'"countryCode":"US","region":"OH","regionName":"Ohio",'
+                    f'"city":"Columbus","zip":"43215",'
+                    f'"lat":39.9612,"lon":-82.9988,'
+                    f'"timezone":"America/New_York",'
+                    f'"isp":"Comcast Cable Communications",'
+                    f'"org":"Comcast Cable Communications",'
+                    f'"as":"AS7922 Comcast Cable Communications, LLC",'
+                    f'"query":"{ip}"}}\n'
+                ).encode()
+                content_type = "application/json"
             # httpbin.org/ip uses {"origin": "..."}
-            if host == "httpbin.org":
-                body = f'{{"origin":"{self._spoof_ip}"}}\n'.encode()
+            elif host == "httpbin.org":
+                body = f'{{"origin":"{ip}"}}\n'.encode()
                 content_type = "application/json"
             # ipify ?format=json or URL ending in /json
             elif "format=json" in path or path.rstrip("/").endswith("/json"):
-                body = f'{{"ip":"{self._spoof_ip}"}}\n'.encode()
+                body = f'{{"ip":"{ip}"}}\n'.encode()
                 content_type = "application/json"
             else:
-                body = f"{self._spoof_ip}\n".encode()
+                body = f"{ip}\n".encode()
                 content_type = "text/plain"
             if self._log_requests:
                 safe_addr = sanitize_ip(self.client_address[0])
                 logger.info(
                     f"HTTP  IP-CHECK {sanitize_log_string(host)}"
                     f"{sanitize_log_string(path, 128)} "
-                    f"from {safe_addr} \u2192 spoofed {self._spoof_ip}"
+                    f"from {safe_addr} \u2192 spoofed {ip}"
                 )
             try:
                 self.send_response(200)
@@ -152,7 +202,35 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Server", self._server_header)
                 self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(body)
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def _send_ncsi_response(self, host: str):
+            """Return the exact response Windows NCSI expects.
+
+            Windows polls these hosts to determine whether to show the
+            'Internet access' indicator. When the response body matches
+            exactly, Windows reports full connectivity — which prevents
+            certain malware from stalling in a 'no network' idle loop.
+            """
+            body = _NCSI_RESPONSES.get(host, b"Microsoft Connect Test")
+            if self._log_requests:
+                safe_addr = sanitize_ip(self.client_address[0])
+                logger.info(
+                    f"HTTP  NCSI {sanitize_log_string(host)} "
+                    f"from {safe_addr} \u2192 {body.decode()}"
+                )
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Server", self._server_header)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
@@ -253,12 +331,17 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                     self._handle_websocket_upgrade()
                     return
 
+            host = self.headers.get("Host", "").split(":")[0].strip().lower()
+
+            # Windows NCSI: must respond correctly regardless of spoof_ip setting
+            if host in _NCSI_HOSTS:
+                self._send_ncsi_response(host)
+                return
+
             # Public IP spoof: intercept well-known IP-check hostnames
-            if self._spoof_ip:
-                host = self.headers.get("Host", "").split(":")[0].strip().lower()
-                if host in _IP_CHECK_HOSTS:
-                    self._send_ip_check_response(host)
-                    return
+            if self._spoof_ip and host in _IP_CHECK_HOSTS:
+                self._send_ip_check_response(host)
+                return
             self._send_normal_response()
 
         def _send_normal_response(self):
@@ -299,13 +382,49 @@ def _make_handler(response_code: int, response_body: str, server_header: str,
                 self.send_header("Server", self._server_header)
                 self.send_header("Connection", "close")
                 self.end_headers()
-                self.wfile.write(body)
+                # HEAD requests MUST NOT include a message body (RFC 7231 §4.3.2).
+                # send_response() / send_header() still ran, so headers are correct.
+                if self.command != "HEAD":
+                    self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # Client disconnected — normal for malware scanners
 
-        # Respond identically to all methods
+        def _send_connect_response(self):
+            """Handle HTTP CONNECT tunnel request.
+
+            Malware configured to route traffic via an HTTP proxy sends
+            CONNECT to tunnel to its C2 (typically port 443).  Returning
+            a proper 200 response — rather than an HTML page — lets the
+            malware believe the tunnel was established; the subsequent TLS
+            handshake fails (no real upstream), but the connection is logged
+            and the client closes cleanly instead of seeing garbled HTML.
+            """
+            safe_addr = sanitize_ip(self.client_address[0])
+            target = sanitize_log_string(self.path or "", 256)
+            if self._log_requests:
+                logger.info(f"HTTP  CONNECT {target} from {safe_addr} \u2192 tunnelled")
+            jl = get_json_logger()
+            if jl:
+                jl.log("http_connect", src_ip=self.client_address[0],
+                       target=self.path or "")
+            try:
+                self.wfile.write(
+                    f"{self.protocol_version} 200 Connection established\r\n\r\n".encode()
+                )
+                self.wfile.flush()
+                # Drain the incoming stream (TLS handshake bytes, app data, etc.)
+                # until the client closes the connection.
+                self.request.settimeout(30)
+                while self.request.recv(4096):
+                    pass
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
+        # Respond identically to most methods; CONNECT is special-cased because
+        # it must not return headers/body in the normal HTTP sense.
         do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = \
-            do_OPTIONS = do_PATCH = do_CONNECT = do_TRACE = _send_fake_response
+            do_OPTIONS = do_PATCH = do_TRACE = _send_fake_response
+        do_CONNECT = _send_connect_response
 
         def handle_one_request(self):
             try:

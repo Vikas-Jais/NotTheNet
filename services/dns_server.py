@@ -24,7 +24,7 @@ from utils.logging_utils import sanitize_hostname, sanitize_ip
 logger = logging.getLogger(__name__)
 
 try:
-    from dnslib import PTR, QTYPE, RR, A, DNSRecord
+    from dnslib import CNAME, MX, NS, PTR, QTYPE, RR, SOA, TXT, A, DNSRecord
     from dnslib.server import DNSServer
     _DNSLIB_AVAILABLE = True
 except ImportError:
@@ -78,12 +78,74 @@ class _FakeResolver:
                 return reply
 
             # --- AAAA (IPv6) ---
+            # Return NOERROR with an empty answer section — signals "no IPv6
+            # for this domain" per RFC 4074 §2.  The resolver falls back to
+            # an A query, which we handle correctly above.
+            # (Previously returned an A-typed RR inside an AAAA response,
+            # which is a protocol error DNS clients silently discard.)
             if request.q.qtype == QTYPE.AAAA:
-                # Return IPv4-mapped IPv6 loopback — keeps malware happy
+                logger.debug(f"  -> AAAA: {safe_name} -> (empty, client falls back to A)")
+                return reply
+
+            # --- MX (mail exchanger) ---
+            # Malware that exfiltrates via SMTP often resolves MX before
+            # connecting to the mail server. Without a proper MX response
+            # the mailer library silently gives up.
+            if request.q.qtype == QTYPE.MX:
+                mail_host = f"mail.{qname}"
+                reply.add_answer(
+                    RR(qname, QTYPE.MX, ttl=self.ttl, rdata=MX(mail_host, 10))
+                )
+                # Additional record so the client can resolve the mail host
+                reply.add_ar(
+                    RR(mail_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+                )
+                logger.debug(f"  -> MX: {safe_name} -> {mail_host} -> {sanitize_ip(self.redirect_ip)}")
+                return reply
+
+            # --- TXT ---
+            # DNS TXT queries are used for SPF checks by mail libraries,
+            # and by malware that uses TXT-based C2 channels (config
+            # delivery, command passing, domain generation checks).
+            if request.q.qtype == QTYPE.TXT:
+                reply.add_answer(
+                    RR(qname, QTYPE.TXT, ttl=self.ttl, rdata=TXT(b"v=spf1 +all"))
+                )
+                logger.debug(f"  -> TXT: {safe_name}")
+                return reply
+
+            # --- NS (name server) ---
+            if request.q.qtype == QTYPE.NS:
+                ns_host = f"ns1.{qname}"
+                reply.add_answer(
+                    RR(qname, QTYPE.NS, ttl=self.ttl, rdata=NS(ns_host))
+                )
+                reply.add_ar(
+                    RR(ns_host, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
+                )
+                logger.debug(f"  -> NS: {safe_name} -> {ns_host}")
+                return reply
+
+            # --- SOA ---
+            if request.q.qtype == QTYPE.SOA:
+                reply.add_answer(
+                    RR(qname, QTYPE.SOA, ttl=self.ttl, rdata=SOA(
+                        f"ns1.{qname}",
+                        f"hostmaster.{qname}",
+                        (2026030500, 3600, 900, 604800, 300),
+                    ))
+                )
+                logger.debug(f"  -> SOA: {safe_name}")
+                return reply
+
+            # --- CNAME ---
+            # Return an A record directly; following CNAME chains is
+            # handled by resolvers, not the authoritative server.
+            if request.q.qtype == QTYPE.CNAME:
                 reply.add_answer(
                     RR(qname, QTYPE.A, ttl=self.ttl, rdata=A(self.redirect_ip))
                 )
-                logger.debug(f"  -> AAAA(faked as A): {safe_name} -> {sanitize_ip(self.redirect_ip)}")
+                logger.debug(f"  -> CNAME(as A): {safe_name} -> {sanitize_ip(self.redirect_ip)}")
                 return reply
 
             # --- A (and everything else) ---

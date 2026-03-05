@@ -1,23 +1,23 @@
 {
   "general": {
     "bind_ip": "0.0.0.0",
-    "redirect_ip": "127.0.0.1",
+    "redirect_ip": "10.10.10.1",
     "log_dir": "logs",
     "log_level": "INFO",
     "log_to_file": true,
     "auto_iptables": true,
     "interface": "eth0",
-    "iptables_mode": "loopback",
+    "iptables_mode": "gateway",
     "spoof_public_ip": "",
-    "json_logging": false,
+    "json_logging": true,
     "json_log_file": "logs/events.jsonl",
-    "tcp_fingerprint": false,
+    "tcp_fingerprint": true,
     "tcp_fingerprint_os": "windows"
   },
   "dns": {
     "enabled": true,
     "port": 53,
-    "resolve_to": "127.0.0.1",
+    "resolve_to": "10.10.10.1",
     "ttl": 300,
     "handle_ptr": true,
     "custom_records": {}
@@ -34,7 +34,7 @@
     "dynamic_responses": true,
     "dynamic_response_rules": [],
     "doh_sinkhole": true,
-    "doh_redirect_ip": "127.0.0.1",
+    "doh_redirect_ip": "10.10.10.1",
     "websocket_sinkhole": true
   },
   "https": {
@@ -52,7 +52,7 @@
     "dynamic_response_rules": [],
     "dynamic_certs": true,
     "doh_sinkhole": true,
-    "doh_redirect_ip": "127.0.0.1",
+    "doh_redirect_ip": "10.10.10.1",
     "websocket_sinkhole": true
   },
   "smtp": {
@@ -62,14 +62,31 @@
     "banner": "220 mail.example.com ESMTP Postfix",
     "save_emails": true
   },
+  "smtps": {
+    "enabled": true,
+    "port": 465,
+    "hostname": "mail.example.com",
+    "banner": "220 mail.example.com ESMTP Postfix",
+    "save_emails": true
+  },
   "pop3": {
     "enabled": true,
     "port": 110,
     "hostname": "mail.example.com"
   },
+  "pop3s": {
+    "enabled": true,
+    "port": 995,
+    "hostname": "mail.example.com"
+  },
   "imap": {
     "enabled": true,
     "port": 143,
+    "hostname": "mail.example.com"
+  },
+  "imaps": {
+    "enabled": true,
+    "port": 993,
     "hostname": "mail.example.com"
   },
   "ftp": {
@@ -86,5 +103,23 @@
     "redirect_tcp": true,
     "redirect_udp": false,
     "excluded_ports": [22, 53, 80, 443, 25, 110, 143, 21]
+  },
+  "ntp": {
+    "enabled": true,
+    "port": 123
+  },
+  "irc": {
+    "enabled": true,
+    "port": 6667,
+    "hostname": "irc.example.com",
+    "network": "FakeNet",
+    "channel": "botnet",
+    "motd": "Welcome to NotTheNet IRC."
+  },
+  "tftp": {
+    "enabled": true,
+    "port": 69,
+    "allow_uploads": true,
+    "upload_dir": "logs/tftp_uploads"
   }
 }
