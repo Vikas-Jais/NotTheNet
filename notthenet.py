@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-3"
+APP_VERSION = "2026.03.06-4"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -1331,7 +1331,6 @@ class NotTheNetApp(tk.Tk):
             )
             dot.pack(side="right")
             dot.bind("<Button-1>", lambda _e=None: self._show_page(key))
-            _hover_bind(dot, C_PANEL, C_HOVER)
             self._svc_vars[key] = dot
 
         if hasattr(self, "_sb_scroll"):
