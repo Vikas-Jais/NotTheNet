@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.06-12] — 2026-03-06
+
+### Changed
+- **↺ restore button** — moved from the info panel's fixed position to the bottom-right corner of the panel; activates with the currently focused field and restores only that field's default on click; section-level "Defaults" buttons removed
+
+---
+
 ## [2026.03.06-11] — 2026-03-06
 
 ### Added
