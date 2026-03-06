@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versioning uses 
 
 ---
 
+## [2026.03.06-2] — 2026-03-06
+
+### Fixed
+- **Log level filter pills** — clicking a pill now immediately hides/shows all existing lines in the live log, not just lines arriving after the click; clearing the filter restores all previously hidden lines
+
+### Added
+- **Scrollable sidebar** — sidebar service list is now wrapped in a scrollable canvas; mouse wheel scrollable on both Linux and Windows; SERVICES header remains pinned while items scroll
+
+---
+
 ## [2026.03.06-1] — 2026-03-06
 
 ### Fixed

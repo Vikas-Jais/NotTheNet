@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-1"
+APP_VERSION = "2026.03.06-2"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -1161,7 +1161,7 @@ class NotTheNetApp(tk.Tk):
         left = tk.Frame(body, bg=C_PANEL)
         body.add(left, minsize=148)
 
-        # Sidebar header
+        # Sidebar header (pinned, not scrollable)
         hdr = tk.Frame(left, bg=C_PANEL, pady=8)
         hdr.pack(fill="x")
         tk.Label(
@@ -1171,16 +1171,45 @@ class NotTheNetApp(tk.Tk):
         ).pack(anchor="w")
         tk.Frame(left, bg=C_BORDER, height=1).pack(fill="x")
 
+        # Scrollable canvas for sidebar items
+        self._sb_canvas = tk.Canvas(left, bg=C_PANEL, highlightthickness=0, bd=0)
+        self._sb_canvas.pack(fill="both", expand=True)
+        sb_inner = tk.Frame(self._sb_canvas, bg=C_PANEL)
+        _sb_win = self._sb_canvas.create_window((0, 0), window=sb_inner, anchor="nw")
+        sb_inner.bind(
+            "<Configure>",
+            lambda e: self._sb_canvas.configure(
+                scrollregion=self._sb_canvas.bbox("all")
+            ),
+        )
+        self._sb_canvas.bind(
+            "<Configure>",
+            lambda e: self._sb_canvas.itemconfig(_sb_win, width=e.width),
+        )
+
+        def _sb_scroll(event):
+            if event.num == 4 or getattr(event, "delta", 0) > 0:
+                self._sb_canvas.yview_scroll(-1, "units")
+            elif event.num == 5 or getattr(event, "delta", 0) < 0:
+                self._sb_canvas.yview_scroll(1, "units")
+
+        self._sb_scroll = _sb_scroll
+        for _w in (self._sb_canvas, sb_inner):
+            _w.bind("<MouseWheel>", _sb_scroll)
+            _w.bind("<Button-4>",   _sb_scroll)
+            _w.bind("<Button-5>",   _sb_scroll)
+
         self._service_btns: dict = {}
 
         # Group: General
-        self._add_sidebar_section(left, "CONFIG")
-        self._add_sidebar_btn(left, "general", "⚙  General",
+        self._add_sidebar_section(sb_inner, "CONFIG")
+        self._add_sidebar_btn(sb_inner, "general", "⚙  General",
                               "Global settings: bind IP, redirect IP,\n"
-                              "network interface, log directory, and verbosity.")
+                              "network interface, log directory, and verbosity.",
+                              show_dot=False)
 
         # Group: Network services
-        self._add_sidebar_section(left, "NETWORK")
+        self._add_sidebar_section(sb_inner, "NETWORK")
         for key, label, tip in [
             ("dns",   "◈  DNS",
              "Fake DNS server — resolves all hostnames to redirect_ip.\n"
@@ -1206,10 +1235,10 @@ class NotTheNetApp(tk.Tk):
              "(saves uploads) on UDP/69. Used for payload staging and\n"
              "lateral movement exfiltration."),
         ]:
-            self._add_sidebar_btn(left, key, label, tip)
+            self._add_sidebar_btn(sb_inner, key, label, tip)
 
         # Group: Mail services
-        self._add_sidebar_section(left, "MAIL")
+        self._add_sidebar_section(sb_inner, "MAIL")
         for key, label, tip in [
             ("smtp",  "◈  SMTP",
              "Fake SMTP server — accepts email submissions and optionally\n"
@@ -1226,20 +1255,21 @@ class NotTheNetApp(tk.Tk):
             ("imaps", "◈  IMAPS",
              "Fake IMAPS server (implicit TLS port 993)."),
         ]:
-            self._add_sidebar_btn(left, key, label, tip)
+            self._add_sidebar_btn(sb_inner, key, label, tip)
 
         # Group: Catch-all
-        self._add_sidebar_section(left, "FALLBACK")
-        self._add_sidebar_btn(left, "catch_all", "◈  Catch-All",
+        self._add_sidebar_section(sb_inner, "FALLBACK")
+        self._add_sidebar_btn(sb_inner, "catch_all", "◈  Catch-All",
                               "TCP/UDP catch-all — iptables redirects all traffic\n"
                               "not handled by specific services to these ports.")
 
         # Group: Logging / analysis
-        self._add_sidebar_section(left, "ANALYSIS")
-        self._add_sidebar_btn(left, "json_events", "◈  JSON Events",
+        self._add_sidebar_section(sb_inner, "ANALYSIS")
+        self._add_sidebar_btn(sb_inner, "json_events", "◈  JSON Events",
                               "Live view of structured JSON event log.\n"
                               "Shows every intercepted request with search\n"
-                              "and event-type filtering.")
+                              "and event-type filtering.",
+                              show_dot=False)
 
         # ── Right: config pages ──
         right = tk.Frame(body, bg=C_SURFACE)
@@ -1255,14 +1285,20 @@ class NotTheNetApp(tk.Tk):
         """Small muted category header in the sidebar."""
         f = tk.Frame(parent, bg=C_PANEL, pady=0)
         f.pack(fill="x", pady=(6, 0))
-        tk.Label(
+        lbl = tk.Label(
             f, text=f"  {title}",
             bg=C_PANEL, fg=C_DIM,
             font=_f(7, True),
-        ).pack(anchor="w", padx=4)
+        )
+        lbl.pack(anchor="w", padx=4)
+        if hasattr(self, "_sb_scroll"):
+            for _w in (f, lbl):
+                _w.bind("<MouseWheel>", self._sb_scroll)
+                _w.bind("<Button-4>",   self._sb_scroll)
+                _w.bind("<Button-5>",   self._sb_scroll)
 
-    def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = ""):
-        """Add one sidebar service button with a status dot on the right."""
+    def _add_sidebar_btn(self, parent, key: str, label: str, tip: str = "", show_dot: bool = True):
+        """Add one sidebar service button with an optional status dot on the right."""
         row = tk.Frame(parent, bg=C_PANEL, cursor="hand2")
         row.pack(fill="x", pady=1)
 
@@ -1273,28 +1309,23 @@ class NotTheNetApp(tk.Tk):
         )
         btn.pack(side="left", fill="x", expand=True, ipady=5)
 
-        dot = tk.Label(
-            row, text="●",
-            bg=C_PANEL, fg=C_DIM,
-            font=_f(8), padx=6,
-        )
-        dot.pack(side="right")
+        dot = None
+        if show_dot:
+            dot = tk.Label(
+                row, text="●",
+                bg=C_PANEL, fg=C_DIM,
+                font=_f(8), padx=6,
+            )
+            dot.pack(side="right")
+            dot.bind("<Button-1>", lambda _e=None: self._show_page(key))
+            _hover_bind(dot, C_PANEL, C_HOVER)
+            self._svc_vars[key] = dot
 
-        def _click(_e=None):
-            self._show_page(key)
-
-        row.bind("<Button-1>", _click)
-        btn.bind("<Button-1>", _click)
-        dot.bind("<Button-1>", _click)
-        _hover_bind(row, C_PANEL, C_HOVER)
-        _hover_bind(btn, C_PANEL, C_HOVER)
-        _hover_bind(dot, C_PANEL, C_HOVER)
-
-        if tip:
-            tooltip(row, tip)
-
-        self._service_btns[key] = (row, btn)
-        self._svc_vars[key] = dot
+        if hasattr(self, "_sb_scroll"):
+            for _w in ([row, btn] + ([dot] if dot else [])):
+                _w.bind("<MouseWheel>", self._sb_scroll)
+                _w.bind("<Button-4>",   self._sb_scroll)
+                _w.bind("<Button-5>",   self._sb_scroll)
 
     def _build_pages(self):
         """Create one config page per service."""
@@ -1649,6 +1680,19 @@ class NotTheNetApp(tk.Tk):
             for lvl, b in self._log_filter_btns.items():
                 b.configure(relief=("sunken" if lvl == level else "flat"),
                             bd=(1 if lvl == level else 0))
+        self._reapply_log_filter()
+
+    def _reapply_log_filter(self):
+        """Re-apply the active level filter to all existing lines in the log widget."""
+        w = self._log_widget
+        w.configure(state="normal")
+        w.tag_remove("HIDDEN", "1.0", "end")
+        if self._log_level_filter:
+            end_line = int(w.index("end-1c").split(".")[0])
+            for i in range(1, end_line + 1):
+                if self._log_level_filter not in w.tag_names(f"{i}.0"):
+                    w.tag_add("HIDDEN", f"{i}.0", f"{i + 1}.0")
+        w.configure(state="disabled")
 
     def _build_statusbar(self):
         tk.Frame(self, bg=C_BORDER, height=1).pack(fill="x", side="bottom")
@@ -1733,6 +1777,9 @@ class NotTheNetApp(tk.Tk):
             self._btn_stop.configure(state="normal")
             self._status_label.configure(text="●  Running", fg=C_GREEN)
             running = set(self._manager._services.keys()) if self._manager else set()
+            # catch_all sidebar key maps to catch_tcp / catch_udp in _services
+            if "catch_tcp" in running or "catch_udp" in running:
+                running.add("catch_all")
             for key, dot in self._svc_vars.items():
                 dot.configure(fg=C_GREEN if key in running else C_DIM)
         else:
