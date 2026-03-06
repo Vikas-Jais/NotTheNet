@@ -2072,8 +2072,8 @@ def main():
 
             stop_event = threading.Event()
 
-            def _sig_handler(sig, frame):
-                logger.info(f"Signal {sig} received; shutting down…")
+            def _sig_handler(sig, _frame):
+                logger.info("Signal %s received; shutting down…", sig)
                 stop_event.set()
 
             signal.signal(signal.SIGINT, _sig_handler)
