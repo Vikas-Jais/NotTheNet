@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-5"
+APP_VERSION = "2026.03.06-6"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -195,6 +195,56 @@ def tooltip(widget: tk.Widget, text: str) -> None:
         _Tooltip(widget, text)
 
 
+# ─── Field info panel ───────────────────────────────────────────────────────
+
+class _InfoPanel(tk.Frame):
+    """Persistent help box pinned at the bottom of each config page.
+    Updates when the user focuses or hovers a field."""
+
+    _IDLE = "Focus or hover a field to see help."
+
+    def __init__(self, parent):
+        super().__init__(
+            parent,
+            bg="#0d0d1c",
+            highlightbackground=C_ACCENT,
+            highlightthickness=1,
+            padx=10, pady=8,
+        )
+        self._title = tk.Label(
+            self, bg="#0d0d1c", fg=C_ACCENT,
+            font=_f(9, True), anchor="w", text="",
+        )
+        self._title.pack(fill="x")
+        self._desc = tk.Label(
+            self, bg="#0d0d1c", fg=C_TEXT,
+            font=_f(8), anchor="w", justify="left",
+            wraplength=480, text=self._IDLE,
+        )
+        self._desc.pack(fill="x", pady=(2, 0))
+        self._default_lbl = tk.Label(
+            self, bg="#0d0d1c", fg=C_ACCENT2,
+            font=_f(8, True), anchor="w", text="",
+        )
+        self._default_lbl.pack(fill="x", pady=(2, 0))
+        self.bind("<Configure>", self._on_resize)
+
+    def _on_resize(self, event):
+        self._desc.configure(wraplength=max(100, event.width - 24))
+
+    def show(self, title: str, tip: str, default: str = ""):
+        self._title.configure(text=title)
+        self._desc.configure(text=tip or "")
+        self._default_lbl.configure(
+            text=f"Suggested default:  {default}" if default else ""
+        )
+
+    def clear(self):
+        self._title.configure(text="")
+        self._desc.configure(text=self._IDLE)
+        self._default_lbl.configure(text="")
+
+
 # ─── Logging bridge: route Python log records → GUI queue ────────────────────
 
 class _QueueHandler(logging.Handler):
@@ -281,14 +331,20 @@ def _section_frame(parent, title: str):
 
 
 def _row(parent, label: str, widget_factory, row: int,
-         col_offset: int = 0, tip: str = ""):
-    """Lay out a label + widget pair in a grid, with an optional hover tooltip."""
+         col_offset: int = 0, tip: str = "", info_panel=None, default: str = ""):
+    """Lay out a label + widget pair; update info_panel on focus/hover when provided."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
     lbl.grid(row=row, column=col_offset, sticky="e", padx=(0, 6), pady=4)
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
-    if tip:
+    if info_panel and tip:
+        def _show(_e=None, _t=label, _d=tip, _def=default):
+            info_panel.show(_t, _d, str(_def))
+        lbl.bind("<Enter>", _show)
+        w.bind("<Enter>", _show)
+        w.bind("<FocusIn>", _show)
+    elif tip:
         tooltip(lbl, tip)
         tooltip(w, tip)
     return w
@@ -775,6 +831,8 @@ class _ServicePage(tk.Frame):
         self._build()
 
     def _build(self):
+        self._info_panel = _InfoPanel(self)
+
         f = _section_frame(self, self.section.upper() + " Service")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
 
@@ -786,9 +844,11 @@ class _ServicePage(tk.Frame):
             v = tk.StringVar(value=str(val))
             self.vars[key] = v
             if choices:
-                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), i, tip=tip)
+                _row(f, label, lambda v=v, c=choices: _combo(f, v, c), i,
+                     tip=tip, info_panel=self._info_panel, default=default)
             else:
-                _row(f, label, lambda v=v: _entry(f, v), i, tip=tip)
+                _row(f, label, lambda v=v: _entry(f, v), i,
+                     tip=tip, info_panel=self._info_panel, default=default)
 
         for j, item in enumerate(self.checks):
             label, key, default = item[0], item[1], item[2]
@@ -801,7 +861,12 @@ class _ServicePage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                tooltip(cb, tip)
+                def _show(_e=None, _lbl=label, _tip=tip, _def=str(default)):
+                    self._info_panel.show(_lbl, _tip, _def)
+                cb.bind("<FocusIn>", _show)
+                cb.bind("<Enter>", _show)
+
+        self._info_panel.pack(fill="x", padx=PAD + 4, pady=(0, PAD + 4))
 
     def apply_to_config(self):
         for key, var in self.vars.items():
