@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-8"
+APP_VERSION = "2026.03.06-9"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -201,7 +201,7 @@ class _InfoPanel(tk.Frame):
     """Persistent help box pinned at the bottom of each config page.
     Updates when the user focuses or hovers a field."""
 
-    _IDLE = "Focus or hover a field to see help."
+    _IDLE = "Click inside a field to see help."
 
     def __init__(self, parent):
         super().__init__(
@@ -227,22 +227,43 @@ class _InfoPanel(tk.Frame):
             font=_f(8, True), anchor="w", text="",
         )
         self._default_lbl.pack(fill="x", pady=(2, 0))
+        self._restore_fn = None
+        self._restore_btn = tk.Button(
+            self, text="\u21ba",
+            bg=C_HOVER, fg=C_TEXT,
+            relief="flat", bd=0, padx=8, pady=3,
+            font=_f(10), cursor="hand2",
+            state="disabled",
+            command=self._do_restore,
+        )
+        self._restore_btn.pack(anchor="w", pady=(8, 0))
+        tooltip(self._restore_btn, "Restore suggested default")
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event):
         self._desc.configure(wraplength=max(100, event.width - 24))
 
-    def show(self, title: str, tip: str, default: str = ""):
+    def _do_restore(self):
+        if self._restore_fn:
+            self._restore_fn()
+
+    def show(self, title: str, tip: str, default: str = "", restore_fn=None):
         self._title.configure(text=title)
         self._desc.configure(text=tip or "")
         self._default_lbl.configure(
             text=f"Suggested default:  {default}" if default else ""
+        )
+        self._restore_fn = restore_fn
+        self._restore_btn.configure(
+            state="normal" if restore_fn else "disabled"
         )
 
     def clear(self):
         self._title.configure(text="")
         self._desc.configure(text=self._IDLE)
         self._default_lbl.configure(text="")
+        self._restore_fn = None
+        self._restore_btn.configure(state="disabled")
 
 
 # ─── Logging bridge: route Python log records → GUI queue ────────────────────
@@ -331,7 +352,8 @@ def _section_frame(parent, title: str):
 
 
 def _row(parent, label: str, widget_factory, row: int,
-         col_offset: int = 0, tip: str = "", info_panel=None, default: str = ""):
+         col_offset: int = 0, tip: str = "", info_panel=None, default: str = "",
+         var=None):
     """Lay out a label + widget pair; update info_panel on click/focus when provided."""
     lbl = tk.Label(parent, text=label, bg=C_SURFACE, fg=C_SUBTLE,
                    font=_f(9), anchor="e")
@@ -339,8 +361,9 @@ def _row(parent, label: str, widget_factory, row: int,
     w = widget_factory()
     w.grid(row=row, column=col_offset + 1, sticky="w", pady=4)
     if info_panel and tip:
-        def _show(_e=None, _t=label, _d=tip, _def=default):
-            info_panel.show(_t, _d, str(_def))
+        def _show(_e=None, _t=label, _d=tip, _def=default, _v=var):
+            restore_fn = (lambda: _v.set(_def)) if _v is not None and _def != "" else None
+            info_panel.show(_t, _d, str(_def), restore_fn=restore_fn)
         w.bind("<FocusIn>", _show)
     else:
         if tip:
@@ -470,10 +493,10 @@ class _GeneralPage(tk.Frame):
             self.vars[key] = v
             if choices:
                 _row(f, label, lambda v=v, c=choices: _combo(f, v, c), row,
-                     tip=tip, info_panel=self._info_panel, default=default)
+                     tip=tip, info_panel=self._info_panel, default=default, var=v)
             else:
                 _row(f, label, lambda v=v: _entry(f, v), row,
-                     tip=tip, info_panel=self._info_panel, default=default)
+                     tip=tip, info_panel=self._info_panel, default=default, var=v)
 
         check_fields = [
             ("Enable auto-iptables rules", "auto_iptables", True,
@@ -517,7 +540,7 @@ class _GeneralPage(tk.Frame):
                  "linux   \u2014 TTL=64,  Window=29200 (Linux 5.x)\n"
                  "macos   \u2014 TTL=64,  Window=65535 (macOS/BSD)\n"
                  "solaris \u2014 TTL=255, Window=49640",
-             info_panel=self._info_panel, default="windows")
+             info_panel=self._info_panel, default="windows", var=v_fp)
 
         # JSON log file path
         json_path_val = self.cfg.get("general", "json_log_file") or "logs/events.jsonl"
@@ -529,7 +552,7 @@ class _GeneralPage(tk.Frame):
              tip="Path to the JSON Lines event log file.\n"
                  "Each intercepted request is written as one JSON object per line.\n"
                  "Relative to the NotTheNet project root.",
-             info_panel=self._info_panel, default="logs/events.jsonl")
+             info_panel=self._info_panel, default="logs/events.jsonl", var=v_jp)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -873,10 +896,10 @@ class _ServicePage(tk.Frame):
             self.vars[key] = v
             if choices:
                 _row(f, label, lambda v=v, c=choices: _combo(f, v, c), i,
-                     tip=tip, info_panel=self._info_panel, default=default)
+                     tip=tip, info_panel=self._info_panel, default=default, var=v)
             else:
                 _row(f, label, lambda v=v: _entry(f, v), i,
-                     tip=tip, info_panel=self._info_panel, default=default)
+                     tip=tip, info_panel=self._info_panel, default=default, var=v)
 
         for j, item in enumerate(self.checks):
             label, key, default = item[0], item[1], item[2]
