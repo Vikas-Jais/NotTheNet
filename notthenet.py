@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-4"
+APP_VERSION = "2026.03.06-5"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -387,7 +387,7 @@ class _GeneralPage(tk.Frame):
              "Log verbosity: DEBUG (most output) > INFO > WARNING > ERROR (least).\n"
              "DEBUG shows every packet; ERROR shows only failures.",
              ["DEBUG", "INFO", "WARNING", "ERROR"]),
-            ("Spoof Public IP", "spoof_public_ip", "",
+            ("Spoof Public IP", "spoof_public_ip", "93.184.216.34",
              "When set, HTTP/HTTPS responses to well-known IP-check services\n"
              "(api.ipify.org, icanhazip.com, checkip.amazonaws.com, etc.)\n"
              "will return this IP instead of the normal page body.\n"
@@ -1365,7 +1365,7 @@ class NotTheNetApp(tk.Tk):
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header.\n"
              "Spoofing a real server (Apache, nginx) may satisfy malware fingerprinting checks."),
-            ("Response Delay (ms)", "response_delay_ms", "0",
+            ("Response Delay (ms)", "response_delay_ms", "50",
              "Artificial delay in milliseconds added before each HTTP response.\n"
              "Realistic latency (50-200 ms) defeats timing-based sandbox detection\n"
              "that flags environments with suspiciously instant responses.\n"
@@ -1409,7 +1409,7 @@ class NotTheNetApp(tk.Tk):
              "Leave blank to use the Response Body string."),
             ("Server Header",   "server_header",  "Apache/2.4.51",
              "Value of the 'Server:' response header inside the TLS tunnel."),
-            ("Response Delay (ms)", "response_delay_ms", "0",
+            ("Response Delay (ms)", "response_delay_ms", "50",
              "Artificial delay in milliseconds added before each HTTPS response.\n"
              "Realistic latency (50-200 ms) defeats timing-based sandbox detection.\n"
              "Set to 0 to disable."),
@@ -1497,7 +1497,7 @@ class NotTheNetApp(tk.Tk):
             ("ftp", [
                 ("Port",       "port",       "21",
                  f"TCP port for the FTP server. Default: 21. {_PORT_ROOT}"),
-                ("Banner",     "banner",     "220 FTP Server Ready",
+                ("Banner",     "banner",     "220 Microsoft FTP Service",
                  "220 greeting sent on connection.\n"
                  "Malware may check this to confirm an FTP server is listening."),
                 ("Upload Dir", "upload_dir", "logs/ftp_uploads",
@@ -1541,7 +1541,7 @@ class NotTheNetApp(tk.Tk):
                 ("Hostname", "hostname", "irc.example.com",
                  "IRC server hostname advertised in the 001–004 welcome burst.\n"
                  "Malware often uses this to verify it connected to the right server."),
-                ("Network",  "network",  "FakeNet",
+                ("Network",  "network",  "IRCnet",
                  "IRC network name sent in RPL_ISUPPORT (005).\n"
                  "Some bots check this to confirm the correct network."),
                 ("Channel",  "channel",  "botnet",

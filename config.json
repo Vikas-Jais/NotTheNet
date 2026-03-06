@@ -8,7 +8,7 @@
     "auto_iptables": true,
     "interface": "eth0",
     "iptables_mode": "gateway",
-    "spoof_public_ip": "",
+    "spoof_public_ip": "93.184.216.34",
     "json_logging": true,
     "json_log_file": "logs/events.jsonl",
     "tcp_fingerprint": true,
@@ -30,7 +30,7 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 0,
+    "response_delay_ms": 50,
     "dynamic_responses": true,
     "dynamic_response_rules": [],
     "doh_sinkhole": true,
@@ -47,7 +47,7 @@
     "response_body": "<html><body><h1>200 OK</h1></body></html>",
     "server_header": "Apache/2.4.51 (Debian)",
     "log_requests": true,
-    "response_delay_ms": 0,
+    "response_delay_ms": 50,
     "dynamic_responses": true,
     "dynamic_response_rules": [],
     "dynamic_certs": true,
@@ -92,7 +92,7 @@
   "ftp": {
     "enabled": true,
     "port": 21,
-    "banner": "220 FTP Server Ready",
+    "banner": "220 Microsoft FTP Service",
     "allow_uploads": true,
     "upload_dir": "logs/ftp_uploads"
   },
@@ -102,7 +102,7 @@
     "udp_port": 9998,
     "redirect_tcp": true,
     "redirect_udp": false,
-    "excluded_ports": [22, 53, 80, 443, 25, 110, 143, 21]
+    "excluded_ports": [22, 53, 80, 443, 25, 110, 143, 21, 3389, 9999, 9998]
   },
   "ntp": {
     "enabled": true,
@@ -112,7 +112,7 @@
     "enabled": true,
     "port": 6667,
     "hostname": "irc.example.com",
-    "network": "FakeNet",
+    "network": "IRCnet",
     "channel": "botnet",
     "motd": "Welcome to NotTheNet IRC."
   },
