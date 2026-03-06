@@ -711,7 +711,7 @@ class _JsonEventsPage(tk.Frame):
                 fh.seek(self._file_pos)
                 new_lines = fh.readlines()
                 self._file_pos = fh.tell()
-        except (OSError, FileNotFoundError):
+        except OSError:
             new_lines = []
 
         if new_lines:
@@ -722,7 +722,7 @@ class _JsonEventsPage(tk.Frame):
                     continue
                 try:
                     obj = json.loads(line)
-                except (json.JSONDecodeError, ValueError):
+                except json.JSONDecodeError:
                     continue
                 row = self._obj_to_row(obj)
                 self._all_rows.append((row, obj))
@@ -943,6 +943,7 @@ class _DNSPage(_ServicePage):
             ],
         )
         # Custom records editor (popup button)
+        self._custom_records_str: str = ""
         self._build_custom_records()
 
     def _build_custom_records(self):
@@ -1269,8 +1270,7 @@ class NotTheNetApp(tk.Tk):
         tooltip(btn_zoom_in, "Zoom in  (Ctrl+=)")
 
         # Root warning (right side)
-        import os as _os
-        if _os.name != "nt" and _os.geteuid() != 0:
+        if os.name != "nt" and os.geteuid() != 0:
             warn = tk.Label(
                 inner,
                 text="⚠  Not root — ports <1024 may fail",
@@ -1916,7 +1916,6 @@ class NotTheNetApp(tk.Tk):
 
     def _on_start(self):
         self._apply_all_pages_to_config()
-        from utils.logging_utils import setup_logging
         setup_logging(
             log_dir=self._cfg.get("general", "log_dir") or "logs",
             log_level=self._cfg.get("general", "log_level") or "INFO",

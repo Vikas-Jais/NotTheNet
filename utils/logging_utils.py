@@ -59,7 +59,6 @@ def setup_logging(
     log_dir: str = "logs",
     log_level: str = "INFO",
     log_to_file: bool = True,
-    name: str = "notthenet",
 ) -> logging.Logger:
     """
     Configure application-wide logging with:
