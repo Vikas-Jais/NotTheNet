@@ -37,7 +37,7 @@ from utils.logging_utils import setup_logging
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_TITLE = "NotTheNet — Fake Internet Simulator"
-APP_VERSION = "2026.03.06-7"
+APP_VERSION = "2026.03.06-8"
 PAD = 8
 FIELD_WIDTH = 22
 LOG_MAX_LINES = 2000  # Cap displayed log lines to avoid memory creep
@@ -502,10 +502,7 @@ class _GeneralPage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(fields) + i, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                def _show(_e=None, _lbl=label, _tip=tip, _def=str(default)):
-                    self._info_panel.show(_lbl, _tip, _def)
-                cb.bind("<FocusIn>", _show)
-                cb.bind("<ButtonRelease-1>", _show)
+                tooltip(cb, tip)
 
         # TCP fingerprint OS dropdown (shown after the checkboxes)
         fp_row = len(fields) + len(check_fields)
@@ -865,6 +862,7 @@ class _ServicePage(tk.Frame):
 
         f = _section_frame(self._left_frame, self.section.upper() + " Service")
         f.pack(fill="x", padx=PAD + 4, pady=PAD + 4)
+        self._form_frame = f
 
         for i, item in enumerate(self.fields):
             label, key, default = item[0], item[1], item[2]
@@ -891,10 +889,7 @@ class _ServicePage(tk.Frame):
             cb = _check(f, label, v)
             cb.grid(row=len(self.fields) + j, column=0, columnspan=2, sticky="w", pady=4)
             if tip:
-                def _show(_e=None, _lbl=label, _tip=tip, _def=str(default)):
-                    self._info_panel.show(_lbl, _tip, _def)
-                cb.bind("<FocusIn>", _show)
-                cb.bind("<ButtonRelease-1>", _show)
+                tooltip(cb, tip)
 
     def apply_to_config(self):
         for key, var in self.vars.items():
@@ -924,33 +919,70 @@ class _DNSPage(_ServicePage):
                  "Prevents connection timeouts in malware that queries its own IP."),
             ],
         )
-        # Custom records editor
+        # Custom records editor (popup button)
         self._build_custom_records()
 
     def _build_custom_records(self):
-        f2 = _section_frame(self._left_frame, "Custom DNS Records  (name = IP)")
-        f2.pack(fill="both", expand=True, padx=PAD + 4, pady=(0, PAD + 4))
-        hint = tk.Label(f2, text="One entry per line:  example.com = 192.168.1.1",
-                        bg=C_SURFACE, fg=C_DIM, font=_f(8))
-        hint.pack(anchor="w", pady=(0, 4))
-        self._records_text = scrolledtext.ScrolledText(
-            f2, height=6, bg=C_ENTRY_BG, fg=C_ENTRY_FG,
+        # Load initial records from config into a plain string
+        records = self.cfg.get("dns", "custom_records") or {}
+        self._custom_records_str = "\n".join(f"{k} = {v}" for k, v in records.items())
+
+        # Button sits at the bottom of the form section
+        btn_row = len(self.fields) + len(self.checks)
+        _btn_style = dict(relief="flat", bd=0, padx=10, pady=4,
+                          font=_f(9), cursor="hand2")
+        btn = tk.Button(
+            self._form_frame,
+            text="⊞  Custom DNS Records…",
+            bg=C_HOVER, fg=C_TEXT,
+            command=self._open_records_popup,
+            **_btn_style,
+        )
+        btn.grid(row=btn_row, column=0, columnspan=2, sticky="w", pady=(10, 4))
+        _hover_bind(btn, C_HOVER, C_SELECTED)
+        tooltip(btn, "Edit per-hostname DNS overrides.\nFormat: hostname = IP  (one per line)")
+
+    def _open_records_popup(self):
+        dlg = tk.Toplevel()
+        dlg.title("Custom DNS Records")
+        dlg.configure(bg=C_SURFACE)
+        dlg.geometry("460x340")
+        dlg.resizable(True, True)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="One entry per line:  example.com = 192.168.1.1",
+                 bg=C_SURFACE, fg=C_DIM, font=_f(8)).pack(anchor="w", padx=12, pady=(10, 2))
+
+        txt = scrolledtext.ScrolledText(
+            dlg, bg=C_ENTRY_BG, fg=C_ENTRY_FG,
             insertbackground=C_ACCENT, relief="flat",
             font=_f(9),
             highlightthickness=1, highlightbackground=C_BORDER,
             highlightcolor=C_ACCENT,
         )
-        self._records_text.pack(fill="both", expand=True)
-        # Populate from config
-        records = self.cfg.get("dns", "custom_records") or {}
-        for name, ip in records.items():
-            self._records_text.insert("end", f"{name} = {ip}\n")
+        txt.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        if self._custom_records_str:
+            txt.insert("end", self._custom_records_str)
+
+        bar = tk.Frame(dlg, bg=C_SURFACE)
+        bar.pack(fill="x", padx=12, pady=(0, 12))
+
+        def _save():
+            self._custom_records_str = txt.get("1.0", "end").strip()
+            dlg.destroy()
+
+        tk.Button(bar, text="Cancel", bg=C_HOVER, fg=C_TEXT,
+                  relief="flat", bd=0, padx=12, pady=4, font=_f(9),
+                  cursor="hand2", command=dlg.destroy).pack(side="right", padx=(4, 0))
+        tk.Button(bar, text="Save", bg=C_ACCENT, fg="#0c0c18",
+                  relief="flat", bd=0, padx=12, pady=4, font=_f(9, True),
+                  cursor="hand2", command=_save).pack(side="right")
 
     def apply_to_config(self):
         super().apply_to_config()
-        # Parse custom records
+        # Parse custom records from the stored string
         records = {}
-        for line in self._records_text.get("1.0", "end").splitlines():
+        for line in self._custom_records_str.splitlines():
             line = line.strip()
             if "=" in line:
                 parts = line.split("=", 1)
